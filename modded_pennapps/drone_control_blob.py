@@ -12,39 +12,15 @@ import sys
 import time
 from __builtin__ import max,min
 
-def report_hue_lower_change(x):
+def report_lower_change(x):
   print "hue lower changed to %d" % x
 
-def report_hue_upper_change(x):
+def report_upper_change(x):
   print "hue upper changed to %d" % x
 
-def report_sat_lower_change(x):
-  print "sat lower changed to %d" % x
-
-def report_sat_upper_change(x):
-  print "sat upper changed to %d" % x
-
-def report_bri_lower_change(x):
-  print "bri lower changed to %d" % x
-
-def report_bri_upper_change(x):
-  print "bri upper changed to %d" % x
-
-def report_erosion_change(x):
-  print "erosion changed to %d" % x
-
-def report_dilation_change(x):
-  print "dilation changed to %d" % x
-
 def main():
-    HUE_LOWERB = 50
-    HUE_UPPERB = 100
-    SAT_LOWERB = 40
-    SAT_UPPERB = 200
-    BRI_LOWERB = 5
-    BRI_UPPERB = 200
-    EROSION = 2
-    DILATION = 4
+    GREENHUE_LOWERB = 50
+    GREENHUE_UPPERB = 100
     testing=False
 
     if len(sys.argv) > 1 and sys.argv[1] == 'testing':
@@ -65,18 +41,10 @@ def main():
 
     clock = pygame.time.Clock()
     namedWindow("threshold", 1)
-    namedWindow("control", WINDOW_NORMAL)
-    resizeWindow("control", 1024, 300)
-    moveWindow("control", 0, 1000)
+    namedWindow("control", 1)
     namedWindow("output", 1)
-    createTrackbar("hue lower", "control", HUE_LOWERB, 255, report_hue_lower_change)
-    createTrackbar("hue upper", "control", HUE_UPPERB, 255, report_hue_upper_change)
-    createTrackbar("sat lower", "control", SAT_LOWERB, 255, report_sat_lower_change)
-    createTrackbar("sat upper", "control", SAT_UPPERB, 255, report_sat_upper_change)
-    createTrackbar("bri lower", "control", BRI_LOWERB, 255, report_bri_lower_change)
-    createTrackbar("bri upper", "control", BRI_UPPERB, 255, report_bri_upper_change)
-    createTrackbar("erosion", "control", EROSION, 10, report_erosion_change)
-    createTrackbar("dilation", "control", DILATION, 10, report_dilation_change)
+    createTrackbar("green hue lower", "control", GREENHUE_LOWERB, 255, report_lower_change)
+    createTrackbar("green hue upper", "control", GREENHUE_UPPERB, 255, report_upper_change)
 
     if testing:
         capture = VideoCapture(0)
@@ -85,14 +53,8 @@ def main():
 
     running = True
     while running:
-        HUE_LOWERB = getTrackbarPos("hue lower", "control")
-        HUE_UPPERB = getTrackbarPos("hue upper", "control")
-        SAT_LOWERB = getTrackbarPos("sat lower", "control")
-        SAT_UPPERB = getTrackbarPos("sat upper", "control")
-        BRI_LOWERB = getTrackbarPos("bri lower", "control")
-        BRI_UPPERB = getTrackbarPos("bri upper", "control")
-        EROSION = getTrackbarPos("erosion", "control")
-        DILATION = getTrackbarPos("dilation", "control")
+        GREENHUE_LOWERB = getTrackbarPos("green hue lower", "control")
+        GREENHUE_UPPERB = getTrackbarPos("green hue upper", "control")
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -104,10 +66,10 @@ def main():
                     running = False
                 # takeoff / land
                 elif event.key == pygame.K_RETURN:
-                    print("take off")
+                    print("return")
                     drone.takeoff()
                 elif event.key == pygame.K_SPACE:
-                    print("land")
+                    print("space")
                     drone.land()
                 # emergency
                 elif event.key == pygame.K_BACKSPACE:
@@ -167,13 +129,12 @@ def main():
             processed_frame = cvtColor(frame, COLOR_BGR2HSV)
             processed_frame = inRange(
               processed_frame,
-              (HUE_LOWERB, SAT_LOWERB, BRI_LOWERB),
-              (HUE_UPPERB, SAT_UPPERB, BRI_UPPERB)
+              (GREENHUE_LOWERB, 25, 25),
+              (GREENHUE_UPPERB, 190, 190)
             )
             kernel = np.ones((5, 5))
-            processed_frame = erode(processed_frame, kernel, iterations=EROSION)
-            processed_frame = dilate(processed_frame, kernel, iterations=DILATION)
-            #processed_frame = GaussianBlur(processed_frame, (5, 5), 0.5, 0.5)
+            #processed_frame = erode(processed_frame, kernel, iterations=2)
+            #processed_frame = dilate(processed_frame, kernel, iterations=2)
             imshow("threshold", processed_frame)
             contours = findContours(
               processed_frame,
@@ -182,8 +143,7 @@ def main():
               (0, 0)
             )[0]
 
-            center = (frame.shape[1]/2, frame.shape[0]/2)
-            hat = (center[0]-1, center[1]-1, 2, 2)
+            hat = (0, 0, 0, 0)
             hat_distance = 90000
             for contour in contours:
                 (x, y, w, h) = boundingRect(contour)
@@ -191,17 +151,20 @@ def main():
                 if distance < hat_distance:
                   hat = (x, y, w, h)
                   hat_distance = distance
+            if hat is None:
+                continue
             (x1, y1, w, h) = hat
             (x2, y2) = (x1 + w, y1 + h)
 
             k2d.update(x1+w/2, y1+h/2)
             estimated = [int(c) for c in k2d.getEstimate()]
-            tracking_center = estimated
+            tracking_center = ((x1+x2)/2, (y1+y2)/2)
 
             circle(frame, (estimated[0], estimated[1]), 4, 1234)
             rectangle(frame, (x1, y1), (x2, y2), 0xFF0000)
 
             if not testing:
+                center = (frame.shape[1]/2, frame.shape[0]/2)
                 FUZZ = 100
                 if (center[1] + FUZZ < tracking_center[1]):
                     #print "move forward"
@@ -212,12 +175,12 @@ def main():
                     #drone.move_backward()
                     pass
                 if (center[0] + FUZZ < tracking_center[0]):
-                    print "move right"
-                    drone.turn_right()
+                    #print "move right"
+                    #drone.turn_right()
                     pass
                 elif (center[0] - FUZZ > tracking_center[0]):
-                    print "move left"
-                    drone.turn_left()
+                    #print "move left"
+                    #drone.turn_left()
                     pass
             imshow("output", frame)
         else:
