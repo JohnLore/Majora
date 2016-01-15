@@ -11,44 +11,38 @@ import urllib2
 import sys
 import time
 from __builtin__ import max,min
+from functools import partial
 
-def report_hue_lower_change(x):
-  print "hue lower changed to %d" % x
+def report_parameter_change(parameter, val):
+  print "%s changed to %d" % (parameter, val)
 
-def report_hue_upper_change(x):
-  print "hue upper changed to %d" % x
-
-def report_sat_lower_change(x):
-  print "sat lower changed to %d" % x
-
-def report_sat_upper_change(x):
-  print "sat upper changed to %d" % x
-
-def report_bri_lower_change(x):
-  print "bri lower changed to %d" % x
-
-def report_bri_upper_change(x):
-  print "bri upper changed to %d" % x
-
-def report_erosion_change(x):
-  print "erosion changed to %d" % x
-
-def report_dilation_change(x):
-  print "dilation changed to %d" % x
+def addControl(name, default, maxval):
+  createTrackbar(name, "control", default, maxval,
+    partial(report_parameter_change, name)
+  )
 
 def main():
-    HUE_LOWERB = 50
+    HUE_LOWERB = 40
     HUE_UPPERB = 100
-    SAT_LOWERB = 40
-    SAT_UPPERB = 200
-    BRI_LOWERB = 5
-    BRI_UPPERB = 200
-    EROSION = 2
+    SAT_LOWERB = 50
+    SAT_UPPERB = 170
+    BRI_LOWERB = 50
+    BRI_UPPERB = 255
+    EROSION = 3
     DILATION = 4
+    FOLLOW_WIDTH = 50
+    DRONE_SPEED = 10/100.
+    CIRCLE_SPEED = 10/100.
+    TURN_SPEED = 50/100.
+    HFUZZ = 100
+    VFUZZ = 100
     testing=False
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'testing':
-        testing = True
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'testing':
+            testing = True
+        elif sys.argv[1] == 'control':
+            control = True
     pygame.init()
     print "initialized"
 
@@ -63,20 +57,28 @@ def main():
     k2d = Kalman2D(1, 0.0001, 0.1)
     estimated = False
 
-    clock = pygame.time.Clock()
+    namedWindow("output", 1)
+
     namedWindow("threshold", 1)
+    moveWindow("threshold", 1000, 0)
+
     namedWindow("control", WINDOW_NORMAL)
     resizeWindow("control", 1024, 300)
     moveWindow("control", 0, 1000)
-    namedWindow("output", 1)
-    createTrackbar("hue lower", "control", HUE_LOWERB, 255, report_hue_lower_change)
-    createTrackbar("hue upper", "control", HUE_UPPERB, 255, report_hue_upper_change)
-    createTrackbar("sat lower", "control", SAT_LOWERB, 255, report_sat_lower_change)
-    createTrackbar("sat upper", "control", SAT_UPPERB, 255, report_sat_upper_change)
-    createTrackbar("bri lower", "control", BRI_LOWERB, 255, report_bri_lower_change)
-    createTrackbar("bri upper", "control", BRI_UPPERB, 255, report_bri_upper_change)
-    createTrackbar("erosion", "control", EROSION, 10, report_erosion_change)
-    createTrackbar("dilation", "control", DILATION, 10, report_dilation_change)
+
+    addControl("hue lower", HUE_LOWERB, 255)
+    addControl("hue upper", HUE_UPPERB, 255)
+    addControl("sat lower", SAT_LOWERB, 255)
+    addControl("sat upper", SAT_UPPERB, 255)
+    addControl("bri lower", BRI_LOWERB, 255)
+    addControl("bri upper", BRI_UPPERB, 255,)
+    addControl("erosion", EROSION, 10)
+    addControl("dilation", DILATION, 10)
+    addControl("dilation", DILATION, 10)
+    addControl("follow width", FOLLOW_WIDTH, 100)
+    addControl("drone speed", int(DRONE_SPEED*100), 100)
+    addControl("turn speed", int(TURN_SPEED*100), 100)
+    addControl("circle speed", int(CIRCLE_SPEED*100), 100)
 
     if testing:
         capture = VideoCapture(0)
@@ -93,6 +95,11 @@ def main():
         BRI_UPPERB = getTrackbarPos("bri upper", "control")
         EROSION = getTrackbarPos("erosion", "control")
         DILATION = getTrackbarPos("dilation", "control")
+        FOLLOW_WIDTH = getTrackbarPos("follow width", "control")
+        DRONE_SPEED = getTrackbarPos("drone speed", "control")/100.
+        CIRCLE_SPEED = getTrackbarPos("circle speed", "control")/100.
+        TURN_SPEED = getTrackbarPos("turn speed", "control")/100.
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -136,26 +143,6 @@ def main():
                     psi_i = drone.navdata['psi']
                     while (drone.navdata['psi']-psi_i) % 360 < 90:
                         drone.turn_right()
-                elif event.key == pygame.K_1:
-                    drone.speed = 0.1
-                elif event.key == pygame.K_2:
-                    drone.speed = 0.2
-                elif event.key == pygame.K_3:
-                    drone.speed = 0.3
-                elif event.key == pygame.K_4:
-                    drone.speed = 0.4
-                elif event.key == pygame.K_5:
-                    drone.speed = 0.5
-                elif event.key == pygame.K_6:
-                    drone.speed = 0.6
-                elif event.key == pygame.K_7:
-                    drone.speed = 0.7
-                elif event.key == pygame.K_8:
-                    drone.speed = 0.8
-                elif event.key == pygame.K_9:
-                    drone.speed = 0.9
-                elif event.key == pygame.K_0:
-                    drone.speed = 1.0
 
         if testing:
             ret, frame = capture.read()
@@ -171,9 +158,9 @@ def main():
               (HUE_UPPERB, SAT_UPPERB, BRI_UPPERB)
             )
             kernel = np.ones((5, 5))
+            processed_frame = GaussianBlur(processed_frame, (5, 5), 0, 0)
             processed_frame = erode(processed_frame, kernel, iterations=EROSION)
             processed_frame = dilate(processed_frame, kernel, iterations=DILATION)
-            #processed_frame = GaussianBlur(processed_frame, (5, 5), 0.5, 0.5)
             imshow("threshold", processed_frame)
             contours = findContours(
               processed_frame,
@@ -198,27 +185,49 @@ def main():
             estimated = [int(c) for c in k2d.getEstimate()]
             tracking_center = estimated
 
-            circle(frame, (estimated[0], estimated[1]), 4, 1234)
-            rectangle(frame, (x1, y1), (x2, y2), 0xFF0000)
+            circle(frame, (estimated[0], estimated[1]), 4, (0, 255, 0))
+            rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0))
 
-            if not testing:
-                FUZZ = 100
-                if (center[1] + FUZZ < tracking_center[1]):
-                    #print "move forward"
-                    #drone.move_forward()
-                    pass
-                elif (center[1] - FUZZ > tracking_center[1]):
-                    #print "move backward"
-                    #drone.move_backward()
-                    pass
-                if (center[0] + FUZZ < tracking_center[0]):
-                    print "move right"
+            action = ""
+            if not (testing or control):
+                drone.speed = DRONE_SPEED
+                if (center[1] + VFUZZ < tracking_center[1]):
+                    action += "move down "
+                    drone.move_down()
+                elif (center[1] - VFUZZ > tracking_center[1]):
+                    action += "move up "
+                    drone.move_up()
+                elif (center[0] + HFUZZ < tracking_center[0]):
+                    action += "turn right "
+                    drone.speed = TURN_SPEED
                     drone.turn_right()
-                    pass
-                elif (center[0] - FUZZ > tracking_center[0]):
-                    print "move left"
+                    drone.speed = DRONE_SPEED
+                elif (center[0] - HFUZZ > tracking_center[0]):
+                    action += "turn left "
+                    drone.speed = TURN_SPEED
                     drone.turn_left()
-                    pass
+                    drone.speed = DRONE_SPEED
+                elif w < FOLLOW_WIDTH and w > 25:
+                    action += "move forward "
+                    drone.move_forward()
+                elif w > 2*FOLLOW_WIDTH:
+                    action += "move backward "
+                    drone.move_backward()
+                elif w > 25:
+                    action += "circle"
+                    drone.speed = CIRCLE_SPEED
+                    drone.move_right()
+                    drone.speed = DRONE_SPEED
+                else:
+                    action += "hover"
+                    drone.turn_left()
+                putText(frame, action, (0, 20),
+                        FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                try:
+                  putText(frame, str(drone.navdata.get(0, dict())["battery"]), (0, 50),
+                          FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                except KeyError:
+                  pass
             imshow("output", frame)
         else:
             print "frame is none"
